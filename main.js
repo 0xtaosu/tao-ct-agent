@@ -1,31 +1,11 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
-global.fetch = fetch;
-const { Scraper } = require('agent-twitter-client');
 const axios = require('axios');
 
 class TwitterReplyBot {
     constructor() {
         console.log('Initializing Twitter Reply Bot...');
-        this.scraper = new Scraper({
-            fetch: fetch
-        });
         this.processedTweets = new Set();
-    }
-
-    async initialize() {
-        try {
-            console.log('Attempting to login to Twitter...');
-            await this.scraper.login(
-                process.env.TWITTER_USERNAME,
-                process.env.TWITTER_PASSWORD,
-                process.env.TWITTER_EMAIL
-            );
-            console.log('✅ Successfully logged in to Twitter');
-        } catch (error) {
-            console.error('❌ Failed to initialize:', error.message);
-            throw error;
-        }
     }
 
     async getDeepSeekResponse(tweetContent) {
@@ -58,72 +38,70 @@ class TwitterReplyBot {
         }
     }
 
-    async monitorAndReply() {
+    async sendTweet(text, replyToId = null) {
+        const tweetEndpoint = 'https://api2.apidance.pro/graphql/CreateTweet';
+        
+        const payload = {
+            variables: {
+                tweet_text: text,
+                dark_request: false,
+                semantic_annotation_ids: [],
+                includePromotedContent: false
+            }
+        };
+
+        if (replyToId) {
+            payload.variables.reply = {
+                in_reply_to_tweet_id: replyToId,
+                exclude_reply_user_ids: []
+            };
+        }
+
+        const headers = {
+            'apikey': process.env.APIDANCE_API_KEY,
+            'AuthToken': process.env.TWITTER_AUTH_TOKEN,
+            'Content-Type': 'application/json'
+        };
+
         try {
-            console.log('\n🔍 Checking timeline for new tweets...');
-            const timeline = await this.scraper.fetchHomeTimeline(20);
-            console.log(`📋 Found ${timeline.length} tweets in timeline`);
+            const response = await fetch(tweetEndpoint, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(payload),
+                redirect: 'follow'
+            });
 
-            for (const tweet of timeline) {
-                if (this.processedTweets.has(tweet.id)) {
-                    console.log(`⏭️ Skipping already processed tweet: ${tweet.id}`);
-                    continue;
-                }
-
-                if (tweet.isRetweet || tweet.isReply) {
-                    console.log(`⏭️ Skipping retweet/reply: ${tweet.id}`);
-                    continue;
-                }
-
-                console.log('\n📝 Processing tweet:', {
-                    id: tweet.id,
-                    author: tweet.author,
-                    text: tweet.text
-                });
-
-                const aiResponse = await this.getDeepSeekResponse(tweet.text);
-
-                if (aiResponse) {
-                    console.log('📤 Attempting to send reply...');
-                    await this.scraper.sendTweet(aiResponse, tweet.id);
-                    console.log('✅ Successfully replied to tweet', tweet.id);
-                }
-
-                this.processedTweets.add(tweet.id);
-                console.log(`✅ Marked tweet ${tweet.id} as processed`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
             }
 
-            if (this.processedTweets.size > 1000) {
-                console.log('🧹 Cleaning up processed tweets cache...');
-                const iterator = this.processedTweets.values();
-                for (let i = 0; i < 500; i++) {
-                    this.processedTweets.delete(iterator.next().value);
-                }
-                console.log(`📊 Processed tweets cache size: ${this.processedTweets.size}`);
-            }
-
+            const result = await response.text();
+            return result;
         } catch (error) {
-            console.error('❌ Error in monitoring tweets:', error.message);
-            if (error.response) {
-                console.error('Error details:', error.response.data);
-            }
+            console.error('❌ Tweet error:', error);
+            throw error;
         }
     }
 
     async start() {
         try {
-            await this.initialize();
-            console.log('\n🚀 Starting monitoring loop...');
-
-            // Run the monitoring loop every 5 minutes
-            setInterval(() => {
-                console.log('\n⏰ Running scheduled check...');
-                this.monitorAndReply();
-            }, 5 * 60 * 1000);
-
-            // Start first monitoring immediately
-            console.log('▶️ Running initial check...');
-            await this.monitorAndReply();
+            console.log('\n🚀 Starting bot...');
+            
+            // 回复特定推文
+            const tweetId = '1870409109964750937';
+            const tweetContent = "I'm looking for a job in web3 industry. I have experience in Solidity, React, Node.js, and Python. DM me if you have any opportunities!";
+            
+            // 获取 AI 回复
+            const aiResponse = await this.getDeepSeekResponse(tweetContent);
+            
+            if (aiResponse) {
+                // 发送回复
+                await this.sendTweet(aiResponse, tweetId);
+                console.log('✅ Reply sent successfully');
+            } else {
+                console.error('❌ Failed to generate AI response');
+            }
 
         } catch (error) {
             console.error('❌ Fatal error:', error.message);
