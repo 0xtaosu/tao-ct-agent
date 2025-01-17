@@ -13,6 +13,7 @@
     "agent-twitter-client": "^0.0.18",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "https-proxy-agent": "^7.0.6",
     "node-fetch": "^2.7.0"
   }
